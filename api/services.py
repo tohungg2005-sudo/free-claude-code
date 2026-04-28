@@ -15,7 +15,12 @@ from config.settings import Settings
 from core.anthropic import get_token_count, get_user_facing_error_message
 from core.anthropic.sse import ANTHROPIC_SSE_RESPONSE_HEADERS
 from providers.base import BaseProvider
-from providers.exceptions import InvalidRequestError, ProviderError
+from providers.exceptions import (
+    AuthenticationError,
+    InvalidRequestError,
+    ProviderError,
+    RateLimitError,
+)
 
 from .model_router import ModelRouter
 from .models.anthropic import MessagesRequest, TokenCountRequest
@@ -98,6 +103,15 @@ class ClaudeProxyService:
         self._model_router = model_router or ModelRouter(settings)
         self._token_counter = token_counter
 
+    # Status codes that trigger fallback to MODEL_FALLBACK
+    _FALLBACK_STATUS_CODES = frozenset({401, 402, 429})
+
+    def _is_fallback_error(self, exc: ProviderError) -> bool:
+        return (
+            isinstance(exc, (AuthenticationError, RateLimitError))
+            or exc.status_code in self._FALLBACK_STATUS_CODES
+        )
+
     def create_message(self, request_data: MessagesRequest) -> object:
         """Create a message response or streaming response."""
         try:
@@ -167,7 +181,18 @@ class ClaudeProxyService:
                 ),
             )
 
-        except ProviderError:
+        except ProviderError as e:
+            # Fallback to MODEL_FALLBACK when primary provider fails with 401/402/429
+            if self._is_fallback_error(e) and self._settings.model_fallback:
+                logger.warning(
+                    "PRIMARY_PROVIDER_FAILED: status={} provider={} -> switching to fallback={}",
+                    e.status_code,
+                    routed.resolved.provider_id if "routed" in dir() else "unknown",
+                    self._settings.model_fallback,
+                )
+                fallback_request = request_data.model_copy(deep=True)
+                fallback_request.model = self._settings.model_fallback
+                return self.create_message(fallback_request)
             raise
         except Exception as e:
             _log_unexpected_service_exception(

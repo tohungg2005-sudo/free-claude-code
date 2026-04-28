@@ -139,6 +139,10 @@ class Settings(BaseSettings):
     # Format: provider_type/model/name
     model: str = "nvidia_nim/z-ai/glm4.7"
 
+    # Fallback model when primary MODEL fails (402/429/401)
+    # Format: provider_type/model/name
+    model_fallback: str | None = Field(default=None, validation_alias="MODEL_FALLBACK")
+
     # Per-model overrides (optional, falls back to MODEL)
     # Each can use a different provider
     model_opus: str | None = Field(default=None, validation_alias="MODEL_OPUS")
