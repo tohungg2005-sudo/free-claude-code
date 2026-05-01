@@ -7,12 +7,7 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
-try:
-    import tiktoken
-
-    ENCODER = tiktoken.get_encoding("cl100k_base")
-except Exception:
-    ENCODER = None
+ENCODER = None  # tiktoken removed; using char-based estimation
 
 
 # Standard headers for Anthropic-style ``text/event-stream`` responses from this proxy.

@@ -7,6 +7,7 @@ from typing import Any
 from loguru import logger
 
 from config.nim import NimSettings
+from config.settings import get_settings
 from core.anthropic import (
     ReasoningReplayMode,
     build_base_request_body,
@@ -112,6 +113,15 @@ def build_request_body(
         )
     except OpenAIConversionError as exc:
         raise InvalidRequestError(str(exc)) from exc
+
+    # Inject system prompt nếu có cấu hình
+    inject_prompt = get_settings().inject_system_prompt
+    if inject_prompt:
+        messages = body.get("messages", [])
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] = inject_prompt + "\n\n" + str(messages[0]["content"])
+        else:
+            body["messages"] = [{"role": "system", "content": inject_prompt}] + messages
 
     # NIM-specific max_tokens: cap against nim.max_tokens
     max_tokens = body.get("max_tokens") or getattr(request_data, "max_tokens", None)

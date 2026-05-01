@@ -116,6 +116,22 @@ class Settings(BaseSettings):
     # ==================== NVIDIA NIM Config ====================
     nvidia_nim_api_key: str = ""
 
+    # Nhiều NIM key xoay vòng, phân cách bằng dấu phẩy
+    # Khi key hiện tại bị 429/401 → tự động thử key tiếp theo
+    nvidia_nim_api_keys: str | None = Field(
+        default=None, validation_alias="NVIDIA_NIM_API_KEYS"
+    )
+
+    def get_nim_keys(self) -> list[str]:
+        """Trả về danh sách tất cả NIM keys (key chính + key phụ)."""
+        keys: list[str] = []
+        if self.nvidia_nim_api_keys:
+            keys = [k.strip() for k in self.nvidia_nim_api_keys.split(",") if k.strip()]
+        # Thêm key chính nếu chưa có
+        if self.nvidia_nim_api_key and self.nvidia_nim_api_key not in keys:
+            keys.insert(0, self.nvidia_nim_api_key)
+        return keys
+
     # ==================== LM Studio Config ====================
     lm_studio_base_url: str = Field(
         default="http://localhost:1234/v1",
@@ -143,11 +159,45 @@ class Settings(BaseSettings):
     # Format: provider_type/model/name
     model_fallback: str | None = Field(default=None, validation_alias="MODEL_FALLBACK")
 
+    # Danh sách fallback tuần tự, phân cách bằng dấu phẩy
+    # Khi model trước bị 429/401/402 -> tự động thử model tiếp theo
+    # Format: "provider/model1,provider/model2,provider/model3"
+    model_fallback_list: str | None = Field(
+        default=None, validation_alias="MODEL_FALLBACK_LIST"
+    )
+
+    def get_fallback_chain(self) -> list[str]:
+        """Trả về danh sách model fallback theo thứ tự ưu tiên."""
+        models: list[str] = []
+        if self.model_fallback_list:
+            models = [
+                m.strip() for m in self.model_fallback_list.split(",") if m.strip()
+            ]
+        if self.model_fallback and self.model_fallback not in models:
+            models.append(self.model_fallback)
+        return models
+
     # Per-model overrides (optional, falls back to MODEL)
     # Each can use a different provider
     model_opus: str | None = Field(default=None, validation_alias="MODEL_OPUS")
     model_sonnet: str | None = Field(default=None, validation_alias="MODEL_SONNET")
     model_haiku: str | None = Field(default=None, validation_alias="MODEL_HAIKU")
+
+    # Nhiều OR key xoay vòng, phân cách bằng dấu phẩy
+    # Khi key hiện tại bị 429/401 → tự động thử key tiếp theo
+    openrouter_api_keys: str | None = Field(
+        default=None, validation_alias="OPENROUTER_API_KEYS"
+    )
+
+    def get_openrouter_keys(self) -> list[str]:
+        """Trả về danh sách tất cả OR keys (key chính + key phụ)."""
+        keys: list[str] = []
+        if self.openrouter_api_keys:
+            keys = [k.strip() for k in self.openrouter_api_keys.split(",") if k.strip()]
+        # Thêm key chính nếu chưa có
+        if self.open_router_api_key and self.open_router_api_key not in keys:
+            keys.insert(0, self.open_router_api_key)
+        return keys
 
     # ==================== Per-Provider Proxy ====================
     nvidia_nim_proxy: str = Field(default="", validation_alias="NVIDIA_NIM_PROXY")
@@ -162,6 +212,9 @@ class Settings(BaseSettings):
     )
     provider_max_concurrency: int = Field(
         default=5, validation_alias="PROVIDER_MAX_CONCURRENCY"
+    )
+    inject_system_prompt: str = Field(
+        default="", validation_alias="INJECT_SYSTEM_PROMPT"
     )
     enable_model_thinking: bool = Field(
         default=True, validation_alias="ENABLE_MODEL_THINKING"

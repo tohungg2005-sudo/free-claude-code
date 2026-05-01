@@ -46,6 +46,10 @@ def create_app() -> FastAPI:
     # Register routes
     app.include_router(router)
 
+    # Dashboard
+    from .dashboard import router as dashboard_router
+    app.include_router(dashboard_router)
+
     # Exception handlers
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):

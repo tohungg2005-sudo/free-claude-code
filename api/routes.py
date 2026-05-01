@@ -12,6 +12,18 @@ from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import ModelResponse, ModelsListResponse
 from .services import ClaudeProxyService
 
+
+def _extract_license_key(request: Request) -> str:
+    """Lấy license key từ header x-api-key (bỏ qua phần sau dấu ':')."""
+    header = request.headers.get("x-api-key") or request.headers.get(
+        "authorization", ""
+    )
+    if header.lower().startswith("bearer "):
+        header = header.split(" ", 1)[1]
+    # Token format: LICENSE_KEY:model_name → lấy phần đầu
+    return header.split(":", 1)[0].strip()
+
+
 router = APIRouter()
 
 
@@ -78,12 +90,14 @@ def _probe_response(allow: str) -> Response:
 # =============================================================================
 @router.post("/v1/messages")
 async def create_message(
+    request: Request,
     request_data: MessagesRequest,
     service: ClaudeProxyService = Depends(get_proxy_service),
     _auth=Depends(require_api_key),
 ):
     """Create a message (always streaming)."""
-    return service.create_message(request_data)
+    license_key = _extract_license_key(request)
+    return service.create_message(request_data, license_key=license_key)
 
 
 @router.api_route("/v1/messages", methods=["HEAD", "OPTIONS"])
@@ -147,6 +161,65 @@ async def list_models(_auth=Depends(require_api_key)):
         has_more=False,
         last_id=SUPPORTED_CLAUDE_MODELS[-1].id if SUPPORTED_CLAUDE_MODELS else None,
     )
+
+
+@router.post("/next-key")
+async def next_or_key(
+    _auth=Depends(require_api_key),
+):
+    """Chuyển sang OR key tiếp theo trong OPENROUTER_API_KEYS.
+
+    Đọc trực tiếp từ .env (không qua settings cache) để luôn thấy
+    key hiện tại đúng → xoay sang key kế tiếp → ghi lại vào .env.
+    """
+    import os
+    from pathlib import Path
+
+    from dotenv import dotenv_values
+
+    env_path = Path.home() / ".config" / "free-claude-code" / ".env"
+    if not env_path.exists():
+        env_path = Path(os.environ.get("FCC_ENV_FILE", ".env"))
+
+    try:
+        # Đọc trực tiếp từ file, không qua cache
+        env_vals = dotenv_values(env_path)
+        keys_raw = env_vals.get("OPENROUTER_API_KEYS", "")
+        keys = [k.strip() for k in keys_raw.split(",") if k.strip()]
+        current = env_vals.get("OPENROUTER_API_KEY", "").strip()
+
+        if len(keys) <= 1:
+            return {"status": "only_one", "message": "Chi co 1 key, khong the xoay"}
+
+        try:
+            idx = keys.index(current)
+            next_key = keys[(idx + 1) % len(keys)]
+        except ValueError:
+            next_key = keys[0]
+
+        lines = env_path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if (
+                line.strip().startswith("OPENROUTER_API_KEY=")
+                and "OPENROUTER_API_KEYS" not in line
+            ):
+                lines[i] = f'OPENROUTER_API_KEY="{next_key}"'
+                break
+        env_path.write_text("\n".join(lines))
+        logger.info(
+            "NEXT_KEY: {}...{} -> {}...{}",
+            current[:8],
+            current[-4:],
+            next_key[:8],
+            next_key[-4:],
+        )
+        return {
+            "status": "ok",
+            "message": f"Da chuyen sang key {next_key[:8]}...{next_key[-4:]}",
+        }
+    except Exception as exc:
+        logger.error("NEXT_KEY_ERROR: {}", exc)
+        return {"status": "error", "message": str(exc)}
 
 
 @router.post("/stop")
